@@ -13,6 +13,16 @@ document.addEventListener("DOMContentLoaded", () => {
       // Clear loading message
       activitiesList.innerHTML = "";
 
+      // Reset activity select options
+      activitySelect.innerHTML = '<option value="">-- Select an activity --</option>';
+
+      // helper to avoid XSS when inserting participant names
+      function escapeHtml(unsafe) {
+        return String(unsafe).replace(/[&<>"']/g, function (m) {
+          return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[m];
+        });
+      }
+
       // Populate activities list
       Object.entries(activities).forEach(([name, details]) => {
         const activityCard = document.createElement("div");
@@ -20,12 +30,53 @@ document.addEventListener("DOMContentLoaded", () => {
 
         const spotsLeft = details.max_participants - details.participants.length;
 
+        // Build participants block (no bullets, delete icon)
+        let participantsHtml;
+        if (details.participants && details.participants.length) {
+          participantsHtml =
+            '<ul class="participants-list" style="list-style-type:none;padding-left:0">' +
+            details.participants.map((p) =>
+              `<li style="display:flex;align-items:center;justify-content:space-between;padding:2px 0">` +
+                `<span>${escapeHtml(p)}</span>` +
+                `<span class="delete-participant" data-activity="${escapeHtml(name)}" data-participant="${escapeHtml(p)}" style="cursor:pointer;margin-left:8px" title="Remove participant">🗑️</span>` +
+              `</li>`
+            ).join("") +
+            "</ul>";
+        } else {
+          participantsHtml = '<p class="no-participants">No participants yet</p>';
+        }
+
         activityCard.innerHTML = `
           <h4>${name}</h4>
           <p>${details.description}</p>
           <p><strong>Schedule:</strong> ${details.schedule}</p>
           <p><strong>Availability:</strong> ${spotsLeft} spots left</p>
+          <div class="participants">
+            <h5>Participants</h5>
+            ${participantsHtml}
+          </div>
         `;
+      // Add event listeners for delete icons
+      activityCard.querySelectorAll('.delete-participant').forEach(icon => {
+        icon.addEventListener('click', async function() {
+          const activityName = icon.getAttribute('data-activity');
+          const participant = icon.getAttribute('data-participant');
+          try {
+            // Call backend to unregister participant
+            const response = await fetch(`/activities/${encodeURIComponent(activityName)}/unregister?email=${encodeURIComponent(participant)}`, {
+              method: 'POST',
+            });
+            if (response.ok) {
+              // Refresh activities list
+              fetchActivities();
+            } else {
+              alert('Failed to unregister participant.');
+            }
+          } catch (error) {
+            alert('Error unregistering participant.');
+          }
+        });
+      });
 
         activitiesList.appendChild(activityCard);
 
@@ -62,6 +113,8 @@ document.addEventListener("DOMContentLoaded", () => {
         messageDiv.textContent = result.message;
         messageDiv.className = "success";
         signupForm.reset();
+        // Refresh activities list so participant is shown immediately
+        fetchActivities();
       } else {
         messageDiv.textContent = result.detail || "An error occurred";
         messageDiv.className = "error";
